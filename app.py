@@ -18,7 +18,6 @@ ships a Python library and no server. This file adds what a hosted deploy needs:
 
 import os
 import re
-import resource
 import socket
 import sys
 import threading
@@ -31,8 +30,9 @@ from fastapi.responses import JSONResponse
 API_KEY = os.environ.get("API_KEY") or ""
 MODEL_DIR = os.environ.get("MODEL_DIR") or "/models/madlad400-3b-ct2"
 THREADS = int(os.environ.get("CT2_CPU_THREADS") or os.cpu_count() or 1)
-MAX_CHARS = int(os.environ.get("MAX_TEXT_CHARS") or 50_000)
+MAX_CHARS = int(os.environ.get("MAX_TEXT_CHARS") or 20_000)
 MAX_BATCH = int(os.environ.get("MAX_BATCH") or 50)
+CHUNK = int(os.environ.get("CHUNK_SEGMENTS") or 8)  # segments decoded together; bounds decoder memory
 BEAM = int(os.environ.get("BEAM_SIZE") or 2)
 SEGMENT_CHARS = int(os.environ.get("SEGMENT_CHARS") or 400)
 PUBLIC_PATHS = {"/health"}
@@ -116,12 +116,12 @@ def _translate(texts: list[str], target: str) -> list[str]:
     plans = [_segments(t) for t in texts]
     todo = [(i, j, p) for i, plan in enumerate(plans) for j, (_, p) in enumerate(plan) if p.strip()]
     outs = {}
-    if todo:
-        batch = [sp.encode(f"<2{target}> {p.strip()}", out_type=str) for _, _, p in todo]
-        results = tr.translate_batch(batch, batch_type="tokens", max_batch_size=1024, beam_size=BEAM,
-                                     max_input_length=1024, max_decoding_length=512,
-                                     repetition_penalty=1.1)
-        for (i, j, _), res in zip(todo, results):
+    for k in range(0, len(todo), CHUNK):
+        part = todo[k:k + CHUNK]
+        batch = [sp.encode(f"<2{target}> {p.strip()}", out_type=str) for _, _, p in part]
+        results = tr.translate_batch(batch, batch_type="tokens", max_batch_size=256, beam_size=BEAM,
+                                     max_input_length=1024, max_decoding_length=512)
+        for (i, j, _), res in zip(part, results):
             outs[(i, j)] = sp.decode(res.hypotheses[0])
     final = []
     for i, plan in enumerate(plans):
@@ -157,6 +157,14 @@ async def guards(request: Request, call_next):
     return await call_next(request)
 
 
+def _status_kb(field: str) -> int:
+    with open("/proc/self/status") as f:
+        for line in f:
+            if line.startswith(field + ":"):
+                return int(line.split()[1])
+    return 0
+
+
 @app.get("/health", include_in_schema=False)
 def health():
     if not _state["ready"]:
@@ -164,7 +172,7 @@ def health():
                              "error": _state["error"]}, status_code=503)
     return {"status": "ok", "model": "madlad400-3b-mt (CTranslate2 int8)",
             "languages": len(_model["codes"]), "loaded_in_s": _state["loaded_in"],
-            "peak_rss_mb": round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024)}
+            "rss_mb": _status_kb("VmRSS") // 1024, "peak_rss_mb": _status_kb("VmHWM") // 1024}
 
 
 def _need_ready():
