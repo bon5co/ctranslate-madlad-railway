@@ -1,0 +1,13 @@
+Wrapper code in this repository (app.py, entrypoint.sh, Dockerfile) is Apache-2.0, see LICENSE.
+
+The container image built from it also contains:
+
+- CTranslate2 4.9.0, MIT licence, Copyright (c) OpenNMT, https://github.com/OpenNMT/CTranslate2
+- The model google/madlad400-3b-mt (MADLAD-400-3B-MT), Apache-2.0 per its Hugging Face model card
+  (https://huggingface.co/google/madlad400-3b-mt), (c) Google. Paper: "MADLAD-400: A Multilingual And
+  Document-Level Large Audited Dataset", https://arxiv.org/abs/2309.04662
+- The CTranslate2 int8 conversion santhosh/madlad400-3b-ct2 at commit
+  c32ad0cf118807ea6258d14be137547155842723, Apache-2.0 per its model card
+  (https://huggingface.co/santhosh/madlad400-3b-ct2), converted by Santhosh Thottingal, who was not
+  involved in the original research. The four files are fetched at build time and verified by sha256.
+- Other Python dependencies as pinned in requirements.txt, each under its own licence.
